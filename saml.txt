@@ -1,1 +1,49 @@
 //saml
+        public void SSO(string id="")
+        {
+            var source = (Request.Params["source"] != null) ? Request.Params["source"].ToString() : string.Empty;
+            var clientId = string.IsNullOrEmpty(id) ? !string.IsNullOrEmpty(source) ?  source : ConfigurationManager.AppSettings[SCIOConstants.AppSettings.SSOClientId] : id;            
+
+            Session[SCIOConstants.Session.ClientID] = clientId;
+
+            var memberUniqueKey = (Request.Params["Memberid"] != null) ? Request.Params["Memberid"].ToString() : string.Empty;
+            var measurementEndDate = (Request.Params["MeasurementEndDate"] != null) ? Request.Params["MeasurementEndDate"].ToString() : string.Empty;
+
+            if (!(SCIOValidation.ValidationForSQLInjection(new string[] {memberUniqueKey, measurementEndDate})))
+            {
+                throw new Exception(Resources.Resource.ValidationMessageForSQLInjection);
+            }
+
+            Session[SCIOConstants.Session.SSOMemberUniqueKey] = memberUniqueKey;
+            Session[SCIOConstants.Session.SSOMeasurementEndDate] = measurementEndDate;
+
+            var ssoModel = new SSOUserModel();
+            var ssoDts = this.UserManagerService.GetSSODetails(string.Empty, clientId);
+            Session[SCIOConstants.Session.LogoutURL] = ssoDts.ClientLogoutURL;
+            Session[SCIOConstants.Session.LoginURL] = ssoDts.ClientLoginURL;
+            Session[SCIOConstants.Session.IdpURL] = ssoDts.ClientIDProviderURL;
+            Session[SCIOConstants.Session.EncryptionKey] = ssoDts.EncryptionKey;
+            Session[SCIOConstants.Session.CertificatePath] = ssoDts.CertificatePath;
+            Session[SCIOConstants.Session.ClientPId] = ssoDts.Id;
+            Session[SCIOConstants.Session.SSOIsAutoProvisioningAccess] = ssoDts.IsAutoProvisioningAccess ?? 0;
+            Session[SCIOConstants.Session.SSOUserDisclaimerShow] = ssoDts.UserDisclaimerShow ?? 0;
+            Session[SCIOConstants.Session.SSOModuleName] = (Request.Params["Module"] != null) ? Request.Params["Module"].ToString() : string.Empty;
+
+
+            // Create the authentication request.
+            XmlElement authnRequestXml = CreateAuthnRequest();
+
+            // Create and cache the relay state so we remember which SP resource the user wishes 
+            // to access after SSO.
+            string spResourceURL = CreateAbsoluteURL(FormsAuthentication.GetRedirectUrl("", false));
+            string relayState = RelayStateCache.Add(new RelayState(spResourceURL, null));
+
+            // Send the authentication request to the identity provider over the selected binding.
+            string idpURL = CreateSSOServiceURL();
+            var resp = System.Web.HttpContext.Current.Response;
+
+            ServiceProvider.SendAuthnRequestByHTTPPost(resp, idpURL, authnRequestXml, relayState);
+
+            // Don't send this form.
+            Response.End();
+        }
